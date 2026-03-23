@@ -11,12 +11,7 @@ function StationSearch({ label, onStationSelect }) {
     }
 
     const response = await fetch(
-      `https://api.transport.nsw.gov.au/v1/tp/stop_finder?outputFormat=rapidJSON&type_sf=any&name_sf=${searchText}&coordOutputFormat=EPSG%3A4326&TfNSWTR=true`,
-      {
-        headers: {
-          Authorization: `apikey ${process.env.REACT_APP_TFNSW_API_KEY}`,
-        },
-      }
+      `http://localhost:3001/api/stop_finder?name=${searchText}`
     );
 
     const data = await response.json();
