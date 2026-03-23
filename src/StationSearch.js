@@ -43,7 +43,17 @@ function StationSearch({ label, onStationSelect }) {
       />
       <ul>
         {results.map((station) => (
-          <li key={station.id}>{station.name}</li>
+          <li
+            key={station.id}
+            onClick={() => {
+              setQuery(station.name);
+              setResults([]);
+              onStationSelect(station);
+            }}
+            style={{ cursor: 'pointer' }}
+          >
+            {station.name}
+          </li>
         ))}
       </ul>
     </div>
