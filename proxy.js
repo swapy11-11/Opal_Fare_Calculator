@@ -43,12 +43,19 @@ app.get('/api/stop_finder', async (req, res) => {
   res.json(data);
 });
 
-app.get('/api/trip', async (req, res) => {
-    const { from, to } = req.query;
+const AIRPORT_PATTERN = /\b(Domestic|International) Airport\b/i;
 
-    const now = new Date();
-    const itdDate = now.toISOString().slice(0, 10).replace(/-/g, '');
-    const itdTime = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+function journeyTouchesAirport(legs) {
+  return legs.some(
+    (leg) => AIRPORT_PATTERN.test(leg.origin?.name || '') || AIRPORT_PATTERN.test(leg.destination?.name || '')
+  );
+}
+
+app.get('/api/trip', async (req, res) => {
+    const { from, to, date, time } = req.query;
+
+    const itdDate = date || new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const itdTime = time || `${String(new Date().getHours()).padStart(2, '0')}${String(new Date().getMinutes()).padStart(2, '0')}`;
 
     const url = `https://api.transport.nsw.gov.au/v1/tp/trip?outputFormat=rapidJSON&coordOutputFormat=EPSG%3A4326&depArrMacro=dep&itdDate=${itdDate}&itdTime=${itdTime}&type_origin=any&name_origin=${from}&type_destination=any&name_destination=${to}&TfNSWTR=true`;
   
@@ -89,12 +96,14 @@ app.get('/api/trip', async (req, res) => {
       });
 
       const summary = [...modes].join(' + ');
-      console.log(`Journey ${ji}: ${summary} | ${totalDistanceKm.toFixed(2)} km`);
+      const airport = journeyTouchesAirport(journey.legs);
+      console.log(`Journey ${ji}: ${summary} | ${totalDistanceKm.toFixed(2)} km${airport ? ' [AIRPORT]' : ''}`);
 
       return {
         summary,
         totalDistanceKm: Math.round(totalDistanceKm * 100) / 100,
         duration: journey.legs.reduce((t, l) => t + (l.duration ?? 0), 0),
+        airport,
         legs,
       };
     });

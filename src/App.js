@@ -1,25 +1,45 @@
 import { useState } from 'react';
 import StationSearch from './StationSearch';
-import { calculateFare, isPeakTime, isWeekend, CARD_TYPES } from './fareCalculator';
+import {
+  calculateFare,
+  isPeakTime,
+  isWeekend,
+  isSchoolCardValid,
+  getAirportFee,
+  CARD_TYPES,
+} from './fareCalculator';
 
 function App() {
   const [fromStation, setFromStation] = useState(null);
   const [toStation, setToStation] = useState(null);
   const [cardType, setCardType] = useState('adult');
+  const [useCurrentTime, setUseCurrentTime] = useState(true);
+  const [customDate, setCustomDate] = useState('');
+  const [customTime, setCustomTime] = useState('');
   const [journeys, setJourneys] = useState(null);
   const [selectedJourney, setSelectedJourney] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const enrichJourneys = (rawJourneys) => {
-    const now = new Date();
-    const peak = isPeakTime(now);
-    const weekend = isWeekend(now);
-    return rawJourneys.map((j) => ({
-      ...j,
-      peak,
-      weekend,
-      fare: calculateFare(j.totalDistanceKm, peak, cardType),
-    }));
+  const getSelectedDate = () => {
+    if (useCurrentTime) return new Date();
+    if (!customDate || !customTime) return new Date();
+    return new Date(`${customDate}T${customTime}`);
+  };
+
+  const computeFareInfo = (journey, card) => {
+    const date = getSelectedDate();
+    const peak = isPeakTime(date);
+    const weekend = isWeekend(date);
+    const schoolValid = isSchoolCardValid(date);
+
+    const effectiveCard = card === 'school' && !schoolValid ? 'concession' : card;
+    const schoolFallback = card === 'school' && !schoolValid;
+
+    const fare = calculateFare(journey.totalDistanceKm, peak, effectiveCard);
+    const airportFee = journey.airport ? getAirportFee(effectiveCard) : 0;
+    const total = Math.round((fare + airportFee) * 100) / 100;
+
+    return { peak, weekend, fare, airportFee, total, schoolFallback, effectiveCard };
   };
 
   const searchTrips = async () => {
@@ -27,13 +47,17 @@ function App() {
     setJourneys(null);
     setSelectedJourney(null);
 
+    const date = getSelectedDate();
+    const itdDate = date.toISOString().slice(0, 10).replace(/-/g, '');
+    const itdTime = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}`;
+
     const response = await fetch(
-      `http://localhost:3001/api/trip?from=${fromStation.id}&to=${toStation.id}`
+      `http://localhost:3001/api/trip?from=${fromStation.id}&to=${toStation.id}&date=${itdDate}&time=${itdTime}`
     );
     const data = await response.json();
 
     if (data.journeys) {
-      setJourneys(enrichJourneys(data.journeys));
+      setJourneys(data.journeys);
     }
 
     setLoading(false);
@@ -41,21 +65,6 @@ function App() {
 
   const handleCardTypeChange = (newType) => {
     setCardType(newType);
-    if (journeys) {
-      const now = new Date();
-      const peak = isPeakTime(now);
-      const recalculated = journeys.map((j) => ({
-        ...j,
-        fare: calculateFare(j.totalDistanceKm, peak, newType),
-      }));
-      setJourneys(recalculated);
-      if (selectedJourney) {
-        const updated = recalculated.find(
-          (j) => j.summary === selectedJourney.summary && j.totalDistanceKm === selectedJourney.totalDistanceKm
-        );
-        if (updated) setSelectedJourney(updated);
-      }
-    }
   };
 
   const formatDuration = (seconds) => {
@@ -79,9 +88,43 @@ function App() {
         </select>
       </div>
 
+      <div style={{ marginBottom: 12 }}>
+        <label>
+          <input
+            type="radio"
+            checked={useCurrentTime}
+            onChange={() => setUseCurrentTime(true)}
+          />
+          {' '}Current time
+        </label>
+        <label style={{ marginLeft: 16 }}>
+          <input
+            type="radio"
+            checked={!useCurrentTime}
+            onChange={() => setUseCurrentTime(false)}
+          />
+          {' '}Custom time
+        </label>
+        {!useCurrentTime && (
+          <div style={{ marginTop: 8 }}>
+            <input
+              type="date"
+              value={customDate}
+              onChange={(e) => setCustomDate(e.target.value)}
+            />
+            <input
+              type="time"
+              value={customTime}
+              onChange={(e) => setCustomTime(e.target.value)}
+              style={{ marginLeft: 8 }}
+            />
+          </div>
+        )}
+      </div>
+
       <div style={{ marginBottom: 16, padding: 10, background: '#f5f5f5', borderRadius: 6, fontSize: 14 }}>
         {cardType === 'school' ? (
-          <span>School Opal: Free travel on eligible services</span>
+          <span>School Opal: Free on school days (Mon–Fri, 6:30am–7pm). Outside those hours, concession fares apply.</span>
         ) : (
           <>
             <strong>{card.label}</strong> caps:
@@ -105,56 +148,77 @@ function App() {
       {journeys && !selectedJourney && (
         <div>
           <h2>Choose a journey</h2>
-          {journeys.map((j, i) => (
-            <div
-              key={i}
-              onClick={() => setSelectedJourney(j)}
-              style={{
-                border: '1px solid #ccc',
-                borderRadius: 8,
-                padding: 12,
-                marginBottom: 8,
-                cursor: 'pointer',
-              }}
-            >
-              <strong>{j.summary}</strong>
-              <span style={{ float: 'right' }}>
-                {cardType === 'school' ? 'Free' : `$${j.fare.toFixed(2)}`}
-              </span>
-              <br />
-              <small>
-                {j.totalDistanceKm.toFixed(2)} km
-                &nbsp;&middot;&nbsp;
-                {formatDuration(j.duration)}
-                &nbsp;&middot;&nbsp;
-                {j.peak ? 'Peak' : 'Off-Peak'}
-              </small>
-            </div>
-          ))}
+          {journeys.map((j, i) => {
+            const info = computeFareInfo(j, cardType);
+            return (
+              <div
+                key={i}
+                onClick={() => setSelectedJourney(j)}
+                style={{
+                  border: '1px solid #ccc',
+                  borderRadius: 8,
+                  padding: 12,
+                  marginBottom: 8,
+                  cursor: 'pointer',
+                }}
+              >
+                <strong>{j.summary}</strong>
+                <span style={{ float: 'right' }}>
+                  {info.total === 0 ? 'Free' : `$${info.total.toFixed(2)}`}
+                </span>
+                <br />
+                <small>
+                  {j.totalDistanceKm.toFixed(2)} km
+                  &nbsp;&middot;&nbsp;
+                  {formatDuration(j.duration)}
+                  &nbsp;&middot;&nbsp;
+                  {info.peak ? 'Peak' : 'Off-Peak'}
+                  {j.airport && <> &middot; Includes airport fee</>}
+                  {info.schoolFallback && <> &middot; Concession rate (outside school hours)</>}
+                </small>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {selectedJourney && (
-        <div>
-          <button onClick={() => setSelectedJourney(null)}>&larr; Back to options</button>
-          <h2>{selectedJourney.summary}</h2>
-          <p>Distance: {selectedJourney.totalDistanceKm.toFixed(2)} km</p>
-          <p>Time: {selectedJourney.peak ? 'Peak' : 'Off-Peak'}</p>
-          <p>Fare: {cardType === 'school' ? 'Free' : `$${selectedJourney.fare.toFixed(2)}`}</p>
+      {selectedJourney && (() => {
+        const info = computeFareInfo(selectedJourney, cardType);
+        return (
+          <div>
+            <button onClick={() => setSelectedJourney(null)}>&larr; Back to options</button>
+            <h2>{selectedJourney.summary}</h2>
+            <p>Distance: {selectedJourney.totalDistanceKm.toFixed(2)} km</p>
+            <p>Time: {info.peak ? 'Peak' : 'Off-Peak'}</p>
+            <p>
+              Fare: {info.fare === 0 ? 'Free' : `$${info.fare.toFixed(2)}`}
+            </p>
+            {selectedJourney.airport && (
+              <p>Airport station access fee: ${info.airportFee.toFixed(2)}</p>
+            )}
+            {info.total !== info.fare && (
+              <p><strong>Total: ${info.total.toFixed(2)}</strong></p>
+            )}
+            {info.schoolFallback && (
+              <p style={{ color: '#c55' }}>
+                School Opal not valid at this time — concession fare applied.
+              </p>
+            )}
 
-          <h3>Legs</h3>
-          <ol>
-            {selectedJourney.legs.map((leg, i) => (
-              <li key={i} style={{ marginBottom: 6, color: leg.isWalking ? '#888' : 'inherit' }}>
-                <strong>{leg.mode}</strong>
-                {' '}
-                {leg.origin} &rarr; {leg.destination}
-                {!leg.isWalking && ` (${leg.distanceKm.toFixed(2)} km)`}
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
+            <h3>Legs</h3>
+            <ol>
+              {selectedJourney.legs.map((leg, i) => (
+                <li key={i} style={{ marginBottom: 6, color: leg.isWalking ? '#888' : 'inherit' }}>
+                  <strong>{leg.mode}</strong>
+                  {' '}
+                  {leg.origin} &rarr; {leg.destination}
+                  {!leg.isWalking && ` (${leg.distanceKm.toFixed(2)} km)`}
+                </li>
+              ))}
+            </ol>
+          </div>
+        );
+      })()}
     </div>
   );
 }
