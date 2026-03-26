@@ -8,6 +8,7 @@ import {
   getAirportFee,
   CARD_TYPES,
 } from './fareCalculator';
+import { getModeLabel, getModeIcon } from './modeConfig';
 
 function App() {
   const [fromStation, setFromStation] = useState(null);
@@ -35,7 +36,10 @@ function App() {
     const effectiveCard = card === 'school' && !schoolValid ? 'concession' : card;
     const schoolFallback = card === 'school' && !schoolValid;
 
-    const fare = calculateFare(journey.totalDistanceKm, peak, effectiveCard);
+    let fare = 0
+    journey.legs.forEach((leg) => { fare += calculateFare(leg.distanceKm, peak, effectiveCard, leg.mode);
+    });
+     
     const airportFee = journey.airport ? getAirportFee(effectiveCard) : 0;
     const total = Math.round((fare + airportFee) * 100) / 100;
 
@@ -71,6 +75,13 @@ function App() {
     const mins = Math.round(seconds / 60);
     if (mins < 60) return `${mins} min`;
     return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  };
+
+  const changeNames = (summary) => {
+    return summary
+      .split(' + ')
+      .map((n) => getModeLabel(n))
+      .join(' + ');
   };
 
   const card = CARD_TYPES[cardType];
@@ -150,6 +161,7 @@ function App() {
           <h2>Choose a journey</h2>
           {journeys.map((j, i) => {
             const info = computeFareInfo(j, cardType);
+            const modes = changeNames(j.summary);
             return (
               <div
                 key={i}
@@ -162,7 +174,7 @@ function App() {
                   cursor: 'pointer',
                 }}
               >
-                <strong>{j.summary}</strong>
+                <strong>{modes}</strong>
                 <span style={{ float: 'right' }}>
                   {info.total === 0 ? 'Free' : `$${info.total.toFixed(2)}`}
                 </span>
@@ -184,10 +196,11 @@ function App() {
 
       {selectedJourney && (() => {
         const info = computeFareInfo(selectedJourney, cardType);
+        const modes = changeNames(selectedJourney.summary);
         return (
           <div>
             <button onClick={() => setSelectedJourney(null)}>&larr; Back to options</button>
-            <h2>{selectedJourney.summary}</h2>
+            <h2>{modes}</h2>
             <p>Distance: {selectedJourney.totalDistanceKm.toFixed(2)} km</p>
             <p>Time: {info.peak ? 'Peak' : 'Off-Peak'}</p>
             <p>
@@ -207,14 +220,22 @@ function App() {
 
             <h3>Legs</h3>
             <ol>
-              {selectedJourney.legs.map((leg, i) => (
-                <li key={i} style={{ marginBottom: 6, color: leg.isWalking ? '#888' : 'inherit' }}>
-                  <strong>{leg.mode}</strong>
-                  {' '}
-                  {leg.origin} &rarr; {leg.destination}
-                  {!leg.isWalking && ` (${leg.distanceKm.toFixed(2)} km)`}
-                </li>
-              ))}
+              {selectedJourney.legs.map((leg, i) => {
+                const icon = getModeIcon(leg.mode);
+                return (
+                  <li key={i} style={{ marginBottom: 6, color: leg.isWalking ? '#888' : 'inherit', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {icon && (
+                      <img src={icon} alt={getModeLabel(leg.mode)} style={{ width: 20, height: 20, flexShrink: 0 }} />
+                    )}
+                    <span>
+                      <strong>{getModeLabel(leg.mode)}:</strong>
+                      {' '}
+                      {leg.origin} &rarr; {leg.destination}
+                      {!leg.isWalking && ` (${leg.distanceKm.toFixed(2)} km)`}
+                    </span>
+                  </li>
+                );
+              })}
             </ol>
           </div>
         );
