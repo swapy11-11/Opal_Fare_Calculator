@@ -6,6 +6,12 @@ const FARE_BANDS = [
   { maxKm: Infinity, peak: 10.80, offPeak: 7.56 },
 ];
 
+const BUS_FARES = [
+  { maxKm: 3, cost: 2.50 },
+  { maxKm: 8, cost: 3.66 },
+  { maxKm: Infinity, cost: 4.95 },
+];
+
 export const CARD_TYPES = {
   adult: {
     label: 'Adult',
@@ -37,14 +43,23 @@ export const CARD_TYPES = {
   },
 };
 
-export function calculateFare(distanceKm, isPeak, cardType = 'adult') {
+export function calculateFare(distanceKm, isPeak, cardType = 'adult', mode) {
   const card = CARD_TYPES[cardType];
   if (card.multiplier === 0) return 0;
 
-  const band = FARE_BANDS.find((b) => distanceKm <= b.maxKm);
-  const baseFare = isPeak ? band.peak : band.offPeak;
-  return Math.round(baseFare * card.multiplier * 100) / 100;
+  if (mode === 'Bus') {
+    const band = BUS_FARES.find((b) => distanceKm <= b.maxKm);
+    return Math.round(band.cost * card.multiplier * 100) / 100;
+  } else {
+    const band = FARE_BANDS.find((b) => distanceKm <= b.maxKm);
+    const baseFare = isPeak ? band.peak : band.offPeak;
+    return Math.round(baseFare * card.multiplier * 100) / 100;
+  }
 }
+
+
+
+
 
 export function getAirportFee(cardType = 'adult') {
   return CARD_TYPES[cardType]?.airportFee ?? 0;
