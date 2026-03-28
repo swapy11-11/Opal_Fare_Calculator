@@ -51,6 +51,61 @@ function journeyTouchesAirport(legs) {
   );
 }
 
+function removeExactDuplicateJourneys(rawJourneys) {
+  const seen = new Set();
+  const uniqueJourneys = [];
+
+  for (const journey of rawJourneys) {
+    // Strict dedupe: keep journeys unless the full API payload for that journey is identical.
+    const signature = JSON.stringify(journey);
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    uniqueJourneys.push(journey);
+  }
+
+  return uniqueJourneys;
+}
+
+function removeExactDuplicateRenderedJourneys(journeys) {
+  const seen = new Set();
+  const uniqueJourneys = [];
+
+  for (const journey of journeys) {
+    // Strict dedupe at UI payload level: only drop if every rendered field matches.
+    const signature = JSON.stringify(journey);
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    uniqueJourneys.push(journey);
+  }
+
+  return uniqueJourneys;
+}
+
+function getLegRouteName(leg, modeName) {
+  if (modeName === 'Sydney Metro Network') return null;
+
+  const transport = leg.transportation || {};
+  const candidates = [
+    transport.number,
+    transport.symbol,
+    transport.disassembledName,
+    transport.name,
+  ]
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .filter(Boolean);
+
+  const genericNames = new Set(['bus', 'train', 'light rail', 'metro']);
+  const uniqueCandidates = [...new Set(candidates)];
+
+  for (const candidate of uniqueCandidates) {
+    if (candidate === modeName) continue;
+    if (genericNames.has(candidate.toLowerCase())) continue;
+    return candidate;
+  }
+
+  return null;
+}
+
 app.get('/api/trip', async (req, res) => {
     const { from, to, date, time } = req.query;
 
@@ -72,7 +127,13 @@ app.get('/api/trip', async (req, res) => {
       return res.status(502).json({ error: 'No journey data returned from API', detail: data });
     }
 
-    const journeys = data.journeys.map((journey, ji) => {
+    const uniqueRawJourneys = removeExactDuplicateJourneys(data.journeys);
+    const duplicateCount = data.journeys.length - uniqueRawJourneys.length;
+    if (duplicateCount > 0) {
+      console.log(`Removed ${duplicateCount} exact duplicate journey option(s).`);
+    }
+
+    const mappedJourneys = uniqueRawJourneys.map((journey, ji) => {
       let totalDistanceKm = 0;
       const modes = new Set();
 
@@ -80,6 +141,11 @@ app.get('/api/trip', async (req, res) => {
         const isWalking = leg.transportation?.product?.class === 99;
         const distKm = leg.coords ? coordsDistanceKm(leg.coords) : 0;
         const modeName = leg.transportation?.product?.name ?? 'Unknown';
+        const coords = Array.isArray(leg.coords)
+          ? leg.coords
+              .filter((point) => Array.isArray(point) && point.length >= 2)
+              .map((point) => [Number(point[0]), Number(point[1])])
+          : [];
 
         if (!isWalking) {
           totalDistanceKm += distKm;
@@ -88,10 +154,12 @@ app.get('/api/trip', async (req, res) => {
 
         return {
           mode: modeName,
+          routeName: isWalking ? null : getLegRouteName(leg, modeName),
           origin: leg.origin?.disassembledName || leg.origin?.name,
           destination: leg.destination?.disassembledName || leg.destination?.name,
           distanceKm: Math.round(distKm * 100) / 100,
           isWalking,
+          coords,
         };
       });
 
@@ -107,6 +175,12 @@ app.get('/api/trip', async (req, res) => {
         legs,
       };
     });
+
+    const journeys = removeExactDuplicateRenderedJourneys(mappedJourneys);
+    const renderedDuplicateCount = mappedJourneys.length - journeys.length;
+    if (renderedDuplicateCount > 0) {
+      console.log(`Removed ${renderedDuplicateCount} duplicate rendered journey option(s).`);
+    }
 
     res.json({ journeys });
 });

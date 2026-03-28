@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import StationSearch from './StationSearch';
+import JourneyMap from './JourneyMap';
 import {
   calculateFare,
   isPeakTime,
@@ -9,6 +10,7 @@ import {
   CARD_TYPES,
 } from './fareCalculator';
 import { getModeLabel, getModeIcon } from './modeConfig';
+import 'leaflet/dist/leaflet.css';
 
 function App() {
   const [fromStation, setFromStation] = useState(null);
@@ -87,7 +89,7 @@ function App() {
   const card = CARD_TYPES[cardType];
 
   return (
-    <div>
+    <div style={{ padding: '0 16px 48px' }}>
       <h1>Opal Fare Calculator</h1>
 
       <div style={{ marginBottom: 12 }}>
@@ -197,6 +199,10 @@ function App() {
       {selectedJourney && (() => {
         const info = computeFareInfo(selectedJourney, cardType);
         const modes = changeNames(selectedJourney.summary);
+        const mappedLegs = selectedJourney.legs.map((leg) => ({
+          ...leg,
+          cost: leg.isWalking ? 0 : calculateFare(leg.distanceKm, info.peak, info.effectiveCard, leg.mode),
+        }));
         return (
           <div>
             <button onClick={() => setSelectedJourney(null)}>&larr; Back to options</button>
@@ -220,7 +226,7 @@ function App() {
 
             <h3>Legs</h3>
             <ol>
-              {selectedJourney.legs.map((leg, i) => {
+              {mappedLegs.map((leg, i) => {
                 const icon = getModeIcon(leg.mode);
                 return (
                   <li key={i} style={{ marginBottom: 6, color: leg.isWalking ? '#888' : 'inherit', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -228,15 +234,20 @@ function App() {
                       <img src={icon} alt={getModeLabel(leg.mode)} style={{ width: 20, height: 20, flexShrink: 0 }} />
                     )}
                     <span>
-                      <strong>{getModeLabel(leg.mode)}:</strong>
+                      <strong>
+                        {getModeLabel(leg.mode)}
+                        {leg.routeName ? ` (${leg.routeName})` : ''}
+                        :
+                      </strong>
                       {' '}
                       {leg.origin} &rarr; {leg.destination}
-                      {!leg.isWalking && ` (${leg.distanceKm.toFixed(2)} km)`}
+                      {!leg.isWalking && ` (${leg.distanceKm.toFixed(2)} km, ${leg.cost === 0 ? 'Free' : `$${leg.cost.toFixed(2)}`})`}
                     </span>
                   </li>
                 );
               })}
             </ol>
+            <JourneyMap legs={mappedLegs} />
           </div>
         );
       })()}
